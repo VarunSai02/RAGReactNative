@@ -5,7 +5,7 @@ type Parameters = {
     onWebSocketClose?: () => void;
     onWebSocketError?: (event: Event) => void;
     onWebSocketMessage?: (event: MessageEvent<any>) => void;
-    // Add other callback types as needed
+    // Add custom callback types as needed (e.g., onReceivedResponseAudioDelta, etc.)
 };
 
 export default function useRealTime({
@@ -17,7 +17,7 @@ export default function useRealTime({
     const ws = useRef<WebSocket | null>(null);
 
     useEffect(() => {
-        ws.current = new WebSocket('ws://your-websocket-endpoint');
+        ws.current = new WebSocket('ws://your-websocket-endpoint'); // Replace with actual endpoint
 
         ws.current.onopen = () => {
             onWebSocketOpen?.();
@@ -42,11 +42,13 @@ export default function useRealTime({
         return () => {
             ws.current?.close();
         };
-    }, []);
+    }, [onWebSocketOpen, onWebSocketClose, onWebSocketError, onWebSocketMessage]); // Add dependencies as needed
 
     const sendMessage = (message: string) => {
         if (ws.current && ws.current.readyState === WebSocket.OPEN) {
             ws.current.send(message);
+        } else {
+            console.warn('WebSocket is not open. Unable to send message:', message);
         }
     };
 
