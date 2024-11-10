@@ -1,118 +1,155 @@
-/**
- * Sample React Native App
- * https://github.com/facebook/react-native
- *
- * @format
- */
+import React, { useState } from 'react';
+import 'intl-pluralrules';
+import { View, Text, Image, StyleSheet, TouchableOpacity } from 'react-native';
+import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons'; // New import for icons
+import { useTranslation } from 'react-i18next';
 
-import React from 'react';
-import type {PropsWithChildren} from 'react';
-import {
-  SafeAreaView,
-  ScrollView,
-  StatusBar,
-  StyleSheet,
-  Text,
-  useColorScheme,
-  View,
-} from 'react-native';
 
-import {
-  Colors,
-  DebugInstructions,
-  Header,
-  LearnMoreLinks,
-  ReloadInstructions,
-} from 'react-native/Libraries/NewAppScreen';
 
-type SectionProps = PropsWithChildren<{
-  title: string;
-}>;
+import * as RNLocalize from 'react-native-localize';
 
-function Section({children, title}: SectionProps): React.JSX.Element {
-  const isDarkMode = useColorScheme() === 'dark';
-  return (
-    <View style={styles.sectionContainer}>
-      <Text
-        style={[
-          styles.sectionTitle,
-          {
-            color: isDarkMode ? Colors.white : Colors.black,
-          },
-        ]}>
-        {title}
-      </Text>
-      <Text
-        style={[
-          styles.sectionDescription,
-          {
-            color: isDarkMode ? Colors.light : Colors.dark,
-          },
-        ]}>
-        {children}
-      </Text>
-    </View>
-  );
-}
+import { GroundingFiles } from './components/GroundingFiles';
+import GroundingFileView from './components/GroundingFileView';
+import StatusMessage from './components/StatusMessage';
+import Button from './components/Button';
 
-function App(): React.JSX.Element {
-  const isDarkMode = useColorScheme() === 'dark';
+import useAudioPlayer from './hooks/useAudioPlayer';
+import useAudioRecorder from './hooks/useAudioRecorder';
+import useRealTime from './hooks/useRealtime';
 
-  const backgroundStyle = {
-    backgroundColor: isDarkMode ? Colors.darker : Colors.lighter,
-  };
+import { GroundingFile, ToolResult } from './types';
 
-  return (
-    <SafeAreaView style={backgroundStyle}>
-      <StatusBar
-        barStyle={isDarkMode ? 'light-content' : 'dark-content'}
-        backgroundColor={backgroundStyle.backgroundColor}
-      />
-      <ScrollView
-        contentInsetAdjustmentBehavior="automatic"
-        style={backgroundStyle}>
-        <Header />
-        <View
-          style={{
-            backgroundColor: isDarkMode ? Colors.black : Colors.white,
-          }}>
-          <Section title="Step One">
-            Edit <Text style={styles.highlight}>App.tsx</Text> to change this
-            screen and then come back to see your edits.
-          </Section>
-          <Section title="See Your Changes">
-            <ReloadInstructions />
-          </Section>
-          <Section title="Debug">
-            <DebugInstructions />
-          </Section>
-          <Section title="Learn More">
-            Read the docs to discover what to do next:
-          </Section>
-          <LearnMoreLinks />
+const logo = require('./assets/logo.png'); // Ensure the image is in a format compatible with React Native
+
+function App() {
+    const [isRecording, setIsRecording] = useState(false);
+    const [groundingFiles, setGroundingFiles] = useState<GroundingFile[]>([]);
+    const [selectedFile, setSelectedFile] = useState<GroundingFile | null>(null);
+
+    const { startSession, addUserAudio, inputAudioBufferClear } = useRealTime({
+        onWebSocketOpen: () => console.log('WebSocket connection opened'),
+        onWebSocketClose: () => console.log('WebSocket connection closed'),
+        onWebSocketError: event => console.error('WebSocket error:', event),
+        onReceivedError: message => console.error('error', message),
+        onReceivedResponseAudioDelta: message => {
+            isRecording && playAudio(message.delta);
+        },
+        onReceivedInputAudioBufferSpeechStarted: () => {
+            stopAudioPlayer();
+        },
+        onReceivedExtensionMiddleTierToolResponse: message => {
+            const result: ToolResult = JSON.parse(message.tool_result);
+
+            const files: GroundingFile[] = result.sources.map(x => {
+                return { id: x.chunk_id, name: x.title, content: x.chunk };
+            });
+
+            setGroundingFiles(prev => [...prev, ...files]);
+        }
+    });
+
+    const { reset: resetAudioPlayer, play: playAudio, stop: stopAudioPlayer } = useAudioPlayer();
+    const { start: startAudioRecording, stop: stopAudioRecording } = useAudioRecorder({ onAudioRecorded: addUserAudio });
+
+    const onToggleListening = async () => {
+        if (!isRecording) {
+            startSession();
+            await startAudioRecording();
+            resetAudioPlayer();
+
+            setIsRecording(true);
+        } else {
+            await stopAudioRecording();
+            stopAudioPlayer();
+            inputAudioBufferClear();
+
+            setIsRecording(false);
+        }
+    };
+
+    const { t } = useTranslation();
+
+    return (
+        <View style={styles.container}>
+            <View style={styles.logoContainer}>
+                <Image source={logo} style={styles.logo} />
+            </View>
+            <View style={styles.main}>
+                <Text style={styles.title}>{t('app.title')}</Text>
+                <TouchableOpacity
+                    onPress={onToggleListening}
+                    style={[styles.button, isRecording ? styles.buttonRecording : styles.buttonIdle]}
+                    accessibilityLabel={isRecording ? t('app.stopRecording') : t('app.startRecording')}
+                >
+                    {isRecording ? (
+                        <>
+                            <MaterialCommunityIcons name="microphone-off" size={24} color="white" />
+                            <Text style={styles.buttonText}>{t('app.stopConversation')}</Text>
+                        </>
+                    ) : (
+                        <>
+                            <MaterialCommunityIcons name="microphone" size={24} color="white" />
+                        </>
+                    )}
+                </TouchableOpacity>
+                <StatusMessage isRecording={isRecording} />
+                <GroundingFiles files={groundingFiles} onSelected={setSelectedFile} />
+            </View>
+            <Text style={styles.footer}>{t('app.footer')}</Text>
+            <GroundingFileView groundingFile={selectedFile} onClosed={() => setSelectedFile(null)} />
         </View>
-      </ScrollView>
-    </SafeAreaView>
-  );
+    );
 }
 
 const styles = StyleSheet.create({
-  sectionContainer: {
-    marginTop: 32,
-    paddingHorizontal: 24,
-  },
-  sectionTitle: {
-    fontSize: 24,
-    fontWeight: '600',
-  },
-  sectionDescription: {
-    marginTop: 8,
-    fontSize: 18,
-    fontWeight: '400',
-  },
-  highlight: {
-    fontWeight: '700',
-  },
+    container: {
+        flex: 1,
+        backgroundColor: '#f3f4f6',
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    logoContainer: {
+        position: 'absolute',
+        top: 16,
+        left: 16,
+    },
+    logo: {
+        height: 64,
+        width: 64,
+    },
+    main: {
+        flex: 1,
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    title: {
+        marginBottom: 32,
+        fontSize: 32,
+        fontWeight: 'bold',
+        textAlign: 'center',
+    },
+    button: {
+        height: 48,
+        width: 240,
+        justifyContent: 'center',
+        alignItems: 'center',
+        borderRadius: 8,
+        marginVertical: 8,
+    },
+    buttonIdle: {
+        backgroundColor: '#6b21a8',
+    },
+    buttonRecording: {
+        backgroundColor: '#dc2626',
+    },
+    buttonText: {
+        color: '#ffffff',
+        fontSize: 16,
+    },
+    footer: {
+        paddingVertical: 16,
+        textAlign: 'center',
+    },
 });
 
 export default App;
